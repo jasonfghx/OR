@@ -1,0 +1,229 @@
+import pandas as pd
+import numpy as np
+
+def manhattan_distance(point1, point2):
+    """
+    Calculate Manhattan distance between two points.
+
+    Parameters:
+        point1 (tuple): Coordinates of the first point (x1, y1).
+        point2 (tuple): Coordinates of the second point (x2, y2).
+
+    Returns:
+        float: Manhattan distance between the two points.
+    """
+    x1, y1 = point1
+    x2, y2 = point2
+    return abs(x2 - x1) + abs(y2 - y1)
+
+def calculate_distance_matrix(coords):
+    """
+    Calculate Manhattan distance matrix between coordinates.
+
+    Parameters:
+        coords (list of tuples): List containing tuples of coordinates, where each tuple is (x, y).
+
+    Returns:
+        numpy.ndarray: 2D array representing the Manhattan distance matrix.
+    """
+    n = len(coords)
+    dist_matrix = np.zeros((n, n))
+    for i in range(n):
+        for j in range(n):
+            dist_matrix[i, j] = manhattan_distance(coords[i], coords[j])
+    return dist_matrix
+
+# 讀取CSV檔案
+df = pd.read_csv('/content/test1.csv')
+change=26
+df=df[df['TG']==change]#改這邊
+
+# 提取X和Y座標
+coords = df[['X', 'Y']].values.tolist()
+
+# 計算曼哈頓距離矩陣
+distance_matrix = calculate_distance_matrix(coords)
+temp=np.array([0,1,2,3,4,5,6,7,8,9],dtype='int')
+distance_matrix=np.vstack([temp,distance_matrix])
+temp=np.array([[0],[0],[1],[2],[3],[4],[5],[6],[7],[8],[9]],dtype='str')
+distance_matrix=np.hstack([temp,distance_matrix])
+def re1(a):
+  a=int(a.replace('.0',''))
+  return a
+df=pd.DataFrame(distance_matrix)
+df[1]=df[1].apply(re1)
+df[2]=df[2].apply(re1)
+df[3]=df[3].apply(re1)
+df[4]=df[4].apply(re1)
+df[5]=df[5].apply(re1)
+df[6]=df[6].apply(re1)
+df[7]=df[7].apply(re1)
+df[8]=df[8].apply(re1)
+df[9]=df[9].apply(re1)
+df[10]=df[10].apply(re1)
+
+# print(distance_matrix)
+# temp=pd.DataFrame(distance_matrix)
+# temp.iloc[0,0]='title'
+
+
+df.to_csv('/content/travelTimes.csv',index=False,header=False)
+import pulp
+import itertools
+import csv
+import os
+
+
+def createAndRunTSPModel(travelTimes, locationList):
+
+    tsp = pulp.LpProblem("Traveling Salesman Problem - DecisionVar : travel_fromLocation_toLocation ", pulp.LpMinimize)
+
+    decisionVar = pulp.LpVariable.dicts("Travel",(locationList,locationList),0,1,pulp.LpInteger)
+
+    for fromLoc,toLoc in travelTimes.keys():
+        decisionVar[toLoc][fromLoc] = decisionVar[fromLoc][toLoc]
+
+    # Objective
+    tsp += sum([float(travelTimes[fromLoc,toLoc]) * decisionVar[fromLoc][toLoc] for fromLoc,toLoc in travelTimes.keys()])
+
+    # Constraint
+    for fromLoc in locationList:
+        tsp += pulp.lpSum([decisionVar[fromLoc][toLoc] for toLoc in locationList if fromLoc!=toLoc]) == 2, \
+               "twoEdgesFor"+str(fromLoc)
+
+    numOfSubTourCtsAdded, tsp, decisionVar = solveAndAddSubtourElimConstraints(tsp, decisionVar, locationList)
+
+    return tsp, decisionVar, numOfSubTourCtsAdded
+
+
+
+def returnOptimalEdges(decisionVar, locationList):
+
+    optimalEdges = []
+    for i, fromLoc in enumerate(locationList):
+        for j, toLoc in enumerate(locationList):
+            if i < j:
+                if decisionVar[fromLoc][toLoc].value() > 0.5:
+                    optimalEdges.append((fromLoc, toLoc))
+
+    return optimalEdges
+
+
+
+def returnSubtour(optimalEdges, locationList):
+
+    unvisited = []
+    for loc in locationList:
+        unvisited.append(loc)
+
+    cycle = range(len(locationList) + 1)
+
+    while unvisited:
+        thisCycle = []
+        neighbors = unvisited
+
+        while neighbors:
+            current = neighbors[0]
+            thisCycle.append(current)
+            unvisited.remove(current)
+            neighbors = []
+
+            for fromLoc, toLoc in optimalEdges:
+                if fromLoc == current and toLoc in unvisited:
+                    neighbors.append(toLoc)
+                elif toLoc == current and fromLoc in unvisited:
+                    neighbors.append(fromLoc)
+
+        if len(cycle) > len(thisCycle):
+            cycle = thisCycle
+
+    return cycle
+
+
+
+
+def solveAndAddSubtourElimConstraints(tsp, decisionVar, locationList):
+
+    iter = 0
+    while True:
+
+        tsp.solve()
+        optimalEdges = returnOptimalEdges(decisionVar, locationList)
+        cycle = returnSubtour(optimalEdges, locationList)
+
+        if len(cycle) >= len(locationList):
+            break
+
+
+        combinations = itertools.combinations(cycle, 2)
+        tsp += pulp.lpSum([decisionVar[fromLoc][toLoc] for fromLoc, toLoc in combinations]) <= len(cycle) - 1, \
+               "LazySubTourElimConstraint" + str(iter + 1)
+
+        iter += 1
+        print("Adding sub-tour elimination constraint and solving again...")
+
+    return iter, tsp, decisionVar
+def getLocationsAndTravelTimesFromCsv():
+
+    with open("/content/travelTimes.csv") as csvfile:
+        data = list(csv.reader(csvfile))
+    locationList = data[0][1:]
+
+    travelTimes = {}
+    for i,fromLoc in enumerate(locationList):
+        for j, toLoc in enumerate(locationList):
+            if data[j+1][i+1].isdigit() and i+1 != j+1:
+                travelTimes[(fromLoc, toLoc)] = int(data[j+1][i+1])
+
+    return locationList, travelTimes
+
+
+
+def printToConsole(decisionVar, locationList):
+
+    fromLoc = locationList[0]
+    visited = []
+    order=[locationList[0]]
+    while True:
+
+        for toLoc in locationList:
+
+            if fromLoc != toLoc and toLoc not in visited:
+                if decisionVar[fromLoc][toLoc].value() > 0.5:
+                    print("Travel from " + str(fromLoc) + " to " + str(toLoc))
+                    order.append(str(toLoc))
+                    break
+
+
+        if len(visited) == len(locationList) - 1:
+            assert decisionVar[fromLoc][locationList[0]].value() > 0.5, "Error in logic/optimization"
+            print("Travel from " + str(fromLoc) + " to " + str(locationList[0]))
+            break
+
+        visited.append(fromLoc)
+        fromLoc = toLoc
+
+    print()
+    return order
+try:
+  locationList, travelTimes = getLocationsAndTravelTimesFromCsv()
+
+  tsp, decisionVar, numOfSubTourCtsAdded = createAndRunTSPModel(travelTimes, locationList)
+
+  print(pulp.LpStatus[tsp.status])
+
+  map1=pd.read_csv('/content/test1.csv')
+  map1=map1[map1['TG']==change].reset_index()
+  order=printToConsole(decisionVar, locationList)
+
+  final=map1.loc[[int(order[0])],:]
+  for i in order[1:]:
+    temp=map1.loc[[int(i)],:]
+    print
+    final=pd.concat([final,temp])
+  print("Objective value:", pulp.value(tsp.objective))
+  final.to_csv('final.csv')
+
+
+except Exception as e:
+  print("Program failed due to : ", e)
